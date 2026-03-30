@@ -1,0 +1,7 @@
+data/*
+model_ckpt/*
+testdb/*
+code/__pycache__/
+slurm_output/
+venv_scprint2/
+.cache/
