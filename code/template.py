@@ -6,6 +6,7 @@ from scdataloader import utils, Preprocessor, DataModule
 import torch
 from pathlib import Path
 import numpy as np
+from utils_filepath import *
 
 curr_dir = Path(__file__).parent
 
@@ -14,8 +15,8 @@ curr_dir = Path(__file__).parent
 
 def custom_pre_process(adata, 
                        max_cells=10000,
-                       ontology_term_id=True, 
-                       cell_type="cardiac muscle myoblast",):
+                       ontology_term_id="NCBITaxon:9606", 
+                       cell_type="cardiac muscle myoblast"):
 
     if max_cells:
         adata = adata[:max_cells, :].copy()
@@ -24,18 +25,17 @@ def custom_pre_process(adata,
         adata = adata[adata.obs["cell_type"] == cell_type, :].copy()
 
     if ontology_term_id:
-        if "organism_ontology_term_id" not in adata.obs.columns \
-            and "organism_ontology_term_id" in adata.uns.columns:
-
-            adata.obs["organism_ontology_term_id"] = adata.uns["organism_ontology_term_id"]
+        adata.obs["organism_ontology_term_id"] = ontology_term_id
+        adata = adata.copy()
 
     return adata
 
 preprocessor = Preprocessor(
     do_postp=False,
     force_preprocess=True,
-    additional_preprocess=
+    additional_preprocess=custom_pre_process
 )
+
 adata = preprocessor(adata)
 
 # art = ln.Artifact(adata, description="test")
