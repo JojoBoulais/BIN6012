@@ -124,16 +124,14 @@ def main(argv):
     os.rmdir(tmp_loc)
     print(f"Generated GRN file : {grn_out_filename}.")
 
-    grn_for_plot = scanpy.read_h5ad(grn_out_filename)
-
-    grn_for_plot.var.index = make_index_unique(grn.var["symbol"].astype(str))
-    grn_for_plot.var.index.name = "index"
-    grn_for_plot.varp["GRN"][np.isnan(grn.varp["GRN"])] = 0
+    grn.var.index = make_index_unique(grn.var["symbol"].astype(str))
+    grn.var.index.name = "index"
+    grn.varp["GRN"][np.isnan(grn.varp["GRN"])] = 0
 
     gene_of_interest = "ENSG00000198670"
 
     print(f"plotting using {gene_of_interest} gene.")
-    grn_for_plot.plot_subgraph(
+    grn.plot_subgraph(
         seed=gene_of_interest, only=55, interactive=False, max_genes=15,
     )
 
