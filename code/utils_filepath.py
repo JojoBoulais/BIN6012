@@ -1,15 +1,17 @@
 from pathlib import Path
 import os
 
-__all__ = ["get_data_filepath", "get_model_filepath"]
 
 CURRENT_DIR = Path(__file__).parent
 
-DATA_DIR = os.path.join(CURRENT_DIR, "..", "data")
-MODEL_DIR = os.path.join(CURRENT_DIR, "..", "model_ckpt")
+KINDS = ["grn", "data", "model", "tmp"]
 
-def get_data_filepath(data_file):
-    return os.path.join(DATA_DIR, data_file)
+def get_filepath(kind, name=""):
 
-def get_model_filepath(model_file):
-    return os.path.join(MODEL_DIR, model_file)
+    if kind not in KINDS:
+        print(f"kind must be one of the following: " + ",".join(KINDS))
+        return ""
+
+    return os.path.join(CURRENT_DIR, "..", kind, name)
+
+

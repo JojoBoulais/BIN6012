@@ -1,5 +1,7 @@
 data/*.h5ad
-model_ckpt/*.ckpt
+model/*.ckpt
+tmp/*
+grn/*
 testdb/*
 code/__pycache__/
 slurm_output/
