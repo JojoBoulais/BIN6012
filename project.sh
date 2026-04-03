@@ -13,8 +13,8 @@ source ~/scprint2/bin/activate
 
 # ============= CUSTOM SCRIPTS =============
 
-python3 ~/BIN6012/code/preprocess.py ~/BIN6012/data/myocardial_infarction.h5ad --max_cells 10000 #--cell_type "cardiac muscle myoblast"
-#python3 ~/BIN6012/code/grn.py ~/BIN6012/model/small-v2.ckpt myocardial_infarction_preprocessed.h5ad
+#python3 ~/BIN6012/code/preprocess.py ~/BIN6012/data/myocardial_infarction.h5ad --max_cells 10000 #--cell_type "cardiac muscle myoblast"
+python3 ~/BIN6012/code/grn.py /home/marco30/BIN6012/model/small-v2_2.ckpt /home/marco30/BIN6012/data/myocardial_infarction_preprocessed_1.h5ad
 #python3 ~/BIN6012/code/grn_plot.py ~/BIN6012/myocardial_infarction_preprocessed_small-v2.h5ad --gene_of_interest PHACTR1
 #jupyter nbconvert --to notebook --execute /home/jordboul/scratch/BIN6012/scPrint-2/code/grn_plot.ipynb
 

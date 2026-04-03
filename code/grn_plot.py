@@ -6,9 +6,10 @@ from networkx import adjacency_data
 import scanpy
 from anndata.utils import make_index_unique
 
-from grnndata import utils as grnutils
-from grnndata import read_h5ad
+#from grnndata import utils as grnutils
+#from grnndata import read_h5ad
 
+from grn_utils import *
 from utils_filepath import *
 
 

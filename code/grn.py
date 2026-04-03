@@ -114,7 +114,7 @@ def main(argv):
     grn_out_filename = get_filepath("grn", grn_out_filename)
 
     # tmp path
-    tmp_loc = os.path.join(get_filepath("tmp"), uuid.uuid4())
+    tmp_loc = os.path.join(get_filepath("tmp"), str(uuid.uuid4()))
     tmp_filename = os.path.join(tmp_loc, "grn_fromscprint.h5ad")
     grn.loc = tmp_loc
 
