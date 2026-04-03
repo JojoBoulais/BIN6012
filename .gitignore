@@ -1,4 +1,6 @@
 data/*.h5ad
+data/RF2-PPI_scores
+
 model/*.ckpt
 tmp/*
 grn/*

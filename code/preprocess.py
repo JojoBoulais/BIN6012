@@ -9,10 +9,10 @@ import scanpy
 
 def main(argv):
 
-    if os.path.exists(argv.in_file):
-        fp = argv.in_file
+    if os.path.exists(argv.h5ad_file):
+        fp = argv.h5ad_file
     else:
-        fp = get_filepath("data", argv.in_file)
+        fp = get_filepath("data", argv.h5ad_file)
 
         if not os.path.exists(fp):
             print(f"{fp} does not exists")
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         description="Preprocessing h5ad file to make it compatible with scPrint2."
         )
     
-    parser.add_argument("in_file")
+    parser.add_argument("h5ad_file")
     parser.add_argument("--max_cells", type=int, default=-1)
     parser.add_argument("--organism", type=str, default="NCBITaxon:9606") # Human
     parser.add_argument("--cell_type", type=str, default="")

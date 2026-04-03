@@ -5,11 +5,9 @@ import uuid
 from pathlib import Path
 import os
 
-from anndata.utils import make_index_unique
 from scprint2.tasks import GNInfer
 from lightning.pytorch import Trainer
-from scprint2 import scPRINT2
-import numpy as np
+
 import scanpy
 from grnndata import read_h5ad
 from grnndata import utils as grnutils
@@ -111,7 +109,7 @@ def main(argv):
     if argv.out_filename:
         grn_out_filename = argv.out_filename
     else:
-        grn_out_filename = Path(adata_fp).stem + Path(model_fp) + ".h5ad"
+        grn_out_filename = str(Path(adata_fp).stem + Path(model_fp).stem) + ".h5ad"
 
     grn_out_filename = get_filepath("grn", grn_out_filename)
 
@@ -124,18 +122,6 @@ def main(argv):
     os.rmdir(tmp_loc)
     print(f"Generated GRN file : {grn_out_filename}.")
 
-    grn_for_plot = scanpy.read_h5ad(grn_out_filename)
-
-    grn_for_plot.var.index = make_index_unique(grn.var["symbol"].astype(str))
-    grn_for_plot.var.index.name = "index"
-    grn_for_plot.varp["GRN"][np.isnan(grn.varp["GRN"])] = 0
-
-    gene_of_interest = "ENSG00000198670"
-
-    print(f"plotting using {gene_of_interest} gene.")
-    grn_for_plot.plot_subgraph(
-        seed=gene_of_interest, only=55, interactive=False, max_genes=15,
-    )
 
 if __name__ == "__main__":
 
