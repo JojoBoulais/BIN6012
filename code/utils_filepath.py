@@ -4,7 +4,7 @@ import os
 
 CURRENT_DIR = Path(__file__).parent
 
-KINDS = ["grn", "data", "model", "tmp"]
+KINDS = ["grn", "data", "model", "tmp", "results"]
 
 def get_filepath(kind, name=""):
 

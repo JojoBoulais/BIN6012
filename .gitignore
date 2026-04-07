@@ -1,6 +1,7 @@
 data/
 
 model/*.ckpt
+results/*
 tmp/*
 grn/*
 testdb/*
@@ -8,4 +9,5 @@ code/__pycache__/
 slurm_output/
 venv_scprint2/
 .cache/
+
 project.sh

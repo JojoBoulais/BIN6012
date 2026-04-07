@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 import os
 
-from scprint2.tasks import GNInfer
+from customize_libs import GNInfer
 from lightning.pytorch import Trainer
 
 import scanpy
@@ -13,7 +13,8 @@ from grnndata import read_h5ad
 from grnndata import utils as grnutils
 
 from utils_filepath import *
-from _utils import load_model_with_cuda_if_avail
+from utils import load_model_with_cuda_if_avail
+from Pathways import Pathway
 
 
 def main(argv):
@@ -40,83 +41,53 @@ def main(argv):
     print("loading dataset.")
     adata = scanpy.read_h5ad(adata_fp)
 
-    # if argv.cell_type:
-    #     sub = adata[adata.obs.celltype == argv.cell_type].copy()
-    #     scanpy.pp.log1p(sub)
-    #     scanpy.pp.highly_variable_genes(sub, n_top_genes=6000)
-    #     topk = set(sub.var.index[sub.var.highly_variable])
-    #     is_expr = set(
-    #         adata.var.index[
-    #             np.array(adata[adata.obs.celltype == argv.cell_type].X.sum(0) > 0)[0]
-    #         ]
-    #     )
-    # else:
-    #     scanpy.pp.log1p(adata)
-    #     scanpy.pp.highly_variable_genes(adata, n_top_genes=6000)
-    #     topk = set(adata.var.index[adata.var.highly_variable])
-    #     is_expr = set(
-    #         adata.var.index[
-    #             np.array(adata[adata.obs.celltype == argv.cell_type].X.sum(0) > 0)[0]
-    #         ]
-    #     )
+    # Processing only genes of interest
+    pathways = Pathway.load_all_pathways()
+    gene_list = []
+    for pathway in pathways:
+        gene_list.extend(pathway.get_genes_ensembl())
 
+    gene_list = list(set(gene_list))
 
-    
-    # - "most var across": select the most variable genes across all cell types
-    # - "most var within": select the most variable genes within a cell type
-    # - "random expr": select random expressed genes
-    # - "some": select a subset of genes defined in genelist
-    # - "most expr": select the most expressed genes in the cell type
+    print(f"{len(gene_list)} genes included in GNinfer.")
 
-    # This is generating file 'grn_fromscprint.h5ad' to loc
-    # sub = adata[adata.obs.celltype == argv.cell_type].copy()
-    topk = list(set(adata.var.index[adata.var.highly_variable])) + ["ENSG00000198670",  "ENSG00000112137"]
-
-    #['ENSG00000165325', 'ENSG00000259124', 'ENSG00000234840', 'ENSG00000263708', 'ENSG00000188177', 'ENSG00000134909', 'ENSG00000213316', 'ENSG00000064692', 'ENSG00000229599', 'ENSG00000198626', 'ENSG00000204103', 'ENSG00000099725', 'ENSG00000145675', 'ENSG00000053524', 'ENSG00000137486', 'ENSG00000227531', 'ENSG00000165244', 'ENSG00000225913', 'ENSG00000286861', 'ENSG00000163535']
-
-    # is_expr = set(
-    #     adata.var.index[
-    #         np.array(adata[adata.obs.celltype == argv.cell_type].X.sum(0) > 0)[0]
-    #     ]
-    # )
-
-    # genes = list(is_expr & set(model.genes) & topk)
-    genes = topk
-
-    # we now compute eigen centrality creating a sparse network by only keeping the top 20 neighbors for each gene in the network
-    # TOP = 20
-    # grnutils.get_centrality(grn_h, TOP, top_k_to_disp=0)
-
+    # Forcing human organism
     model.organisms = adata.var["organism"].unique()
 
     print("Creating GNInfer")
     grn_inferer = GNInfer(
-        how="most var across",
+        how="some", # most var across
         preprocess="softmax",
         head_agg="mean",
         filtration="none",
-        # genelist=genes,
-        num_genes=4000,
-        max_cells=1024,
+        genelist=gene_list, # processing only these gene with how="some"
+        #num_genes=20_000,
+        max_cells=0, # all cells
         num_workers=8,
         batch_size=16,
         precomp_attn=True
     )
 
-    print("processing grn_inferer...")
-    grn = grn_inferer(model, adata, cell_type=argv.cell_type) 
-
     if argv.out_filename:
         grn_out_filename = argv.out_filename
     else:
-        grn_out_filename = str(Path(adata_fp).stem + Path(model_fp).stem) + ".h5ad"
+        grn_out_filename = "_".join([str(Path(adata_fp).stem),
+                                    str(Path(model_fp).stem),
+                                    str(argv.cell_type).replace(" ", "_")])
+        grn_out_filename = grn_out_filename + ".h5ad"
 
     grn_out_filename = get_filepath("grn", grn_out_filename)
 
     # tmp path
-    tmp_loc = os.path.join(get_filepath("tmp"), str(uuid.uuid4()))
+    tmp_loc = os.path.join(get_filepath("tmp"), str(uuid.uuid4())) + "/"
     tmp_filename = os.path.join(tmp_loc, "grn_fromscprint.h5ad")
-    grn.loc = tmp_loc
+
+    os.makedirs(tmp_loc, exist_ok=True)
+
+    grn_inferer.loc = tmp_loc
+
+    print("processing grn_inferer...")
+    grn_inferer(model, adata, cell_type=argv.cell_type)
 
     shutil.move(tmp_filename, grn_out_filename)
     os.rmdir(tmp_loc)

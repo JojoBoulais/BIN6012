@@ -1,17 +1,18 @@
 from argparse import ArgumentParser
+from pathlib import Path
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 import os
 
-from networkx import adjacency_data
-import scanpy
 from anndata.utils import make_index_unique
 
-#from grnndata import utils as grnutils
-#from grnndata import read_h5ad
 
-from grn_utils import *
+from grnndata import read_h5ad
+
 from utils_filepath import *
-
+from customize_libs import customize_GRNAnnData
+from Pathways import Pathway
 
 def main(argv):
 
@@ -27,26 +28,39 @@ def main(argv):
     print(f"Loading {adata_filepath}...")
     grn_for_plot = read_h5ad(adata_filepath)
 
-    grn_for_plot.var.index = make_index_unique(grn_for_plot.var["symbol"].astype(str))
+    # Adding modified plot_subgraph method here
+    grn_for_plot = customize_GRNAnnData(grn_for_plot)
+
     grn_for_plot.var.index.name = "index"
-    # grn_for_plot.varp["GRN"][np.isnan(grn_for_plot.varp["GRN"])] = 0
 
-    print(f"plotting using {argv.gene_of_interest} gene...")
+    # Importing Pathway
+    pathway = Pathway(argv.pathway)
 
-    print(grn_for_plot.var["symbol"])
-    
-    for gene in ["PHACTR1", "LPA", "AL359922.1", "AL359922", "ATXN2", "CELSR2", "MIA3", "NECTIN2"]:
+    results_fp = get_filepath("results")
 
-        print(gene, gene in grn_for_plot.var["symbol"])
+    out_filepath = "_".join([str(Path(adata_filepath).stem), argv.pathway])
 
+    out_filepath = out_filepath.replace("/", "-")
 
-    
+    if not os.path.exists(results_fp):
+        os.makedirs(results_fp)
 
+    out_filepath_graph = out_filepath + "_graph" +".png"
+
+    out_filepath_graph = os.path.join(results_fp, out_filepath_graph)
+
+    # Plotting genes network
     adjacency_data = grn_for_plot.plot_subgraph(
-            seed=argv.gene_of_interest, only=55, interactive=True, max_genes=argv.max_genes,
+            pathway_name=argv.pathway,
+            genes=pathway.get_genes_ensembl(),
+            out_filepath=out_filepath_graph
         )
-
-
+    
+    # Plotting heatmap
+    out_filepath_heatmap = out_filepath + "_heatmap" +".png"
+    out_filepath_heatmap = os.path.join(results_fp, out_filepath_heatmap)
+    sns.heatmap(adjacency_data, annot=True, cmap='viridis')
+    plt.savefig(out_filepath_heatmap)
 
 if __name__ == "__main__":
 
@@ -56,8 +70,8 @@ if __name__ == "__main__":
         )
     
     parser.add_argument("h5ad_file")
-    parser.add_argument("--gene_of_interest", type=str, required=True)
+    parser.add_argument("--pathway", type=str, required=True, choices=Pathway.pathways)
+    parser.add_argument("--threshold", type=float, default=55.0, required=False)
     parser.add_argument("--max_genes", type=int, default=15, required=False)
-    parser.add_argument("--out_filename", default="", required=False)
 
     main(parser.parse_args())
