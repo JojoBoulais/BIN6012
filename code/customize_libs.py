@@ -2,6 +2,7 @@ import types
 from grnndata import GRNAnnData
 import d3graph
 from typing import List, Optional
+from copy import deepcopy
 
 import gseapy as gp
 import networkx as nx
@@ -18,6 +19,8 @@ from pyvis import network as pnx
 from sklearn.metrics.pairwise import cosine_similarity
 from scprint2.tasks import GNInfer as _GNInfer
 
+from bengrn import BenGRN as _BenGRN, compute_pr
+
 # Get the base seaborn color palette as hex list
 base_color_palette = sns.color_palette().as_hex()
 
@@ -28,7 +31,6 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
         self,
         pathway_name: str,
         genes: List[str],
-        gene_col: str = "symbol",
         palette: List[str] = base_color_palette,
         interactive: bool = False,
         do_enr: bool = False,
@@ -60,16 +62,16 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
         """
         
         # Gathering gene symbols
-        rn = {k: v for k, v in self.var[gene_col].items()}
+        rn = self.rn
 
-        available_genes = [gene for gene in genes if gene in rn.keys()]
+        self.available_genes = [gene for gene in genes if gene in rn.keys()]
 
-        diff = list(set(genes).difference(set(available_genes)))
+        diff = list(set(genes).difference(set(self.available_genes)))
 
         if diff:
             print(f"Leaving behind {len(diff)} genes:")
             print(diff)
-            genes = available_genes
+            genes = self.available_genes
 
         # Sous-matrice du GRN pour les gènes du pathway
         mat = self.grn.loc[genes, genes]
@@ -194,7 +196,8 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
             plt.title(pathway_name)
             plt.tight_layout()
 
-            plt.savefig(out_filepath)
+            if out_filepath:
+                plt.savefig(out_filepath)
             
         if do_enr:
             enr = gp.enrichr(
@@ -217,9 +220,13 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
                 background=self.var.symbol.tolist(),
             )
             print(enr.res2d.head(20))
-        return G
+        return G, mat
 
     # Assigning custom method here
+    obj.gene_col = "symbol"
+    obj.available_genes = []
+    obj.rn = {k: v for k, v in obj.var[obj.gene_col].items()}
+
     obj.plot_subgraph = types.MethodType(plot_subgraph,
             obj)
     
@@ -230,4 +237,68 @@ class GNInfer(_GNInfer):
     def __init__(self, *args, **kwargs):
         self.genelist = kwargs["genelist"]
         super().__init__(*args, **kwargs)
-    
+
+
+class BenGRN(_BenGRN):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def compare_to(
+        self,
+        to: pd.DataFrame = "collectri",
+        organism: str = "human",
+    ):
+        """
+        compare_to compares the GRN to another GRN.
+
+        Args:
+            other (Optional[GRNAnnData], optional): The other GRN to compare to. Defaults to None.
+                If not given can use a default GRN from the 'to' argument.
+            to (str, optional): The name of the other GRN to compare to. Defaults to "collectri".
+                If 'other' is given, this argument is ignored.
+            organism (str, optional): The organism of the GRN to compare to. Defaults to "human".
+
+        Returns:
+            dict: The metrics of the comparison.
+        """
+
+        gt = to
+
+        # gt = get_GT_db(name=to, organism=organism)
+        # gt = gt[gt.type != "post_translational"]
+        if self.only_tf:
+            gt = gt[gt.type == "transcriptional"]
+        # gt = gt[
+        #    gt.source.isin(
+        #        [i for i, n in gt.source.value_counts().items() if n > 20]
+        #    )
+        #    & gt.target.isin(
+        #        [i for i, n in gt.target.value_counts().items() if n > 5]
+        #    )
+        # ]
+        varnames = set(gt.iloc[:, :2].values.flatten())
+        intersection = varnames & set(self.grn.var["symbol"].tolist())
+        loc = self.grn.var["symbol"].isin(intersection)
+        adj = self.grn.varp["GRN"][:, loc][loc, :]
+        genes = self.grn.var.loc[loc, "symbol"].tolist()
+
+        da = np.zeros(adj.shape, dtype=float)
+        for source, target in gt.iloc[:, :2].values:
+            if source in genes and target in genes:
+                da[genes.index(source), genes.index(target)] = 1
+        if self.only_tf:
+            da = da[[i in gt.source.unique() for i in genes], :]
+            adj = adj[[i in gt.source.unique() for i in genes], :]
+        if self.doplot:
+            print("intersection of {} genes".format(len(intersection)))
+            print("intersection pct:", len(intersection) / len(self.grn.grn.index))
+            print("only tf: ", self.only_tf)
+            print("using only tf: ", adj.shape[0] / self.grn.shape[1])
+            print("total true edges: ", da.sum())
+
+        return compute_pr(
+            adj,
+            da,
+            doplot=self.doplot,
+            do_auc=self.do_auc,
+        )

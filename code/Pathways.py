@@ -20,7 +20,7 @@ class Pathway():
     re_human = re.compile(r"^ENSG")
     re_mus = re.compile(r"^ENSMUS")
 
-    def __init__(self, pathway_name, version=1):
+    def __init__(self, pathway_name, version=2):
         assert pathway_name in self.pathways
 
         fp_pathways = get_filepath("data", f"pathways_v{version}.json")
@@ -50,6 +50,16 @@ class Pathway():
     def load_all_pathways(cls):
         return [Pathway(pathway) for pathway in cls.pathways]
 
+    # @classmethod
+    # def extract_pathway_from_filepath(cls, filepath):
+
+    #     for pathway in cls.pathways():
+    #         if pathway in filepath:
+    #             return pathway
+            
+    #     print("No pathway found")
+    #     return ""
+
 
 if __name__ == "__main__":
     # ========================== PATHWAYS ==========================
@@ -59,14 +69,26 @@ if __name__ == "__main__":
     # https://string-db.org/cgi/download?sessionId=bZwq8wTEfbPY&species_text=Homo+sapiens
 
     # inflammation response
-    NLRP3_caspase1 = {"NLRP3" : ["ENSG00000162711", "ENSMUSG00000032691"],
-                    "caspase-1" : ["ENSG00000137752", "ENSMUSG00000025888"]}
+    NLRP3_caspase1 = {  "NLRP3" : ["ENSG00000162711", "ENSMUSG00000032691"],
+                        "caspase-1" : ["ENSG00000137752", "ENSMUSG00000025888"],
+                        "IL1B" : ["ENSG00000125538"],
+                        "IL18" : ["ENSG00000150782"]
+                    }
 
     TLR4_MyD88_NFkB = {
+        "TLR2" : ["ENSG00000137462"],
         "TLR4" : ["ENSG00000136869", "ENSMUSG00000039005"],
         "MyD88" : ["ENSG00000172936", "ENSMUSG00000032508"],
         "NFKB1" : ["ENSG00000109320", "ENSMUSG00000028163"],
-        "NFKB2" : ["ENSG00000077150", "ENSMUSG00000025225"]
+        "NFKB2" : ["ENSG00000077150", "ENSMUSG00000025225"],
+        "IL1A" : ["ENSG00000115008"],
+        "IL1R1" : ["ENSG00000115594"],
+        "IRAK4" : ["ENSG00000198001"],
+        "TRAF6" : ["ENSG00000175104"],
+        "S100A1" : ["ENSG00000160678"],
+        "S100A8" : ["ENSG00000143546"],
+        "LGALS3" : ["ENSG00000131981"],
+        "S100B" : ["ENSG00000160307"]
     }
 
     # oxidative stress and apoptosis
@@ -97,9 +119,11 @@ if __name__ == "__main__":
     }
 
     Nrf2_HO_1 = {
+        "NFE2L2" : ["ENSG00000116044"],
         "NRF2" : ["ENSG00000116044", "ENSMUSG00000015839"],
         "KEAP1" : ["ENSG00000079999", "ENSMUSG00000003308"],
         "HMOX1" : ["ENSG00000100292", "ENSMUSG00000005413"], #HO-1
+        "HMOX2" : ["ENSG00000103415"],
         "GSTA1" : ["ENSG00000243955", "ENSMUSG00000057933"],
         "GSTP1" : ["ENSG00000084207"],
         "NQO1" : ["ENSG00000181019", "ENSMUSG00000003849"]
@@ -123,7 +147,15 @@ if __name__ == "__main__":
         "MAPK9" : ["ENSG00000050748", "ENSMUSG00000020366"],  # JNK2
         "MAPK10" : ["ENSG00000109339", "ENSMUSG00000046709"],  # JNK3
         "MAPK11" : ["ENSG00000185386", "ENSMUSG00000053137"],
-        "ACKR3" : ["ENSG00000144476", "ENSMUSG00000044337"]
+        "ACKR3" : ["ENSG00000144476", "ENSMUSG00000044337"],
+        "HSP90AA1" : ["ENSG00000080824"],
+        "ADRA1A" : ["ENSG00000120907"],
+        "MST1" : ["ENSG00000173531"],
+        "RAF1" : ["ENSG00000132155"],
+        "RGS5" : ["ENSG00000143248"],
+        "ANO1" : ["ENSG00000131620"],
+        "RGS5" : ["ENSG00000143248"],
+        "PTGS2" : ["ENSG00000073756"]
     }
 
     # main regulator of angiogenesis
@@ -139,7 +171,9 @@ if __name__ == "__main__":
         "GSK3B" : ["ENSG00000082701", "ENSMUSG00000022812"],
         "FOXO1" : ["ENSG00000150907"],
         "MST1" : ["ENSG00000173531", "ENSMUSG00000032591"],
-        "EPO" : ["ENSG00000130427", "ENSMUSG00000029711"]
+        "EPO" : ["ENSG00000130427", "ENSMUSG00000029711"],
+        "NOS2" : ["ENSG00000007171"],
+        "VEGFA" : ["ENSG00000112715"]
     }
 
     JAK_STAT = {
@@ -167,11 +201,20 @@ if __name__ == "__main__":
         "ANO1" : ["ENSG00000131620"]
     }
 
-    Wnt_catenin = {# Wnt/β-catenin
+    Wnt_catenin = { # Wnt/β-catenin
         "WNT1" : ["ENSG00000125084"],
         "WNT2" : ["ENSG00000105989"],
         "WNT3" : ["ENSG00000108379"],
         "WNT4" : ["ENSG00000162552"],
+        "WNT5A" : ["ENSG00000114251"],
+        "IL1B" : ["ENSG00000125538"],
+        "IL6" : ["ENSG00000136244"],
+        "WIF1" : ["ENSG00000156076"],
+        "WNT10B" : ["ENSG00000169884"],
+        "SFRP1" : ["ENSG00000104332"],
+        "MIR145" : ["ENSG00000276365"],
+        "WNT11" : ["ENSG00000085741"],
+        "LEF1" : ["ENSG00000138795"],
         "LRP5" : ["ENSG00000162337"],
         "LRP6" : ["ENSG00000070018"],
         "CTNNB1" : ["ENSG00000168036"],
@@ -202,7 +245,41 @@ if __name__ == "__main__":
             json.dump(pathways, f_pathways)
 
 
-    generate_json_file(1)
+    # generate_json_file(2)
+
+
+    import gseapy as gp
+
+    reactome = gp.get_library(name="Reactome_2022")
+
+    fp = get_filepath("tmp", "pathways.txt")
+
+    with open(fp, "w") as f:
+
+        hearts= [k for k in reactome.keys() if "cardiac" in k.lower() or "heart" in k.lower()]
+
+        print(hearts, file=f)
+
+        for pathway, genes in reactome.items():
+            print(pathway, len(genes), file=f)
+
+    [
+        "MyD88-independent TLR4 Cascade R-HSA-166166",
+        "NOTCH1 Intracellular Domain Regulates Transcription R-HSA-2122947",
+        "NOTCH2 Activation And Transmission Of Signal To Nucleus R-HSA-2979096",
+        "NOTCH2 Intracellular Domain Regulates Transcription R-HSA-2197563",
+        "NOTCH3 Activation And Transmission Of Signal To Nucleus R-HSA-9013507",
+        "NOTCH3 Intracellular Domain Regulates Transcription R-HSA-9013508",
+        "NOTCH4 Activation And Transmission Of Signal To Nucleus R-HSA-9013700",
+        "NOTCH4 Intracellular Domain Regulates Transcription R-HSA-9013695",
+        "Signaling By Hippo R-HSA-2028269",
+        "RHO GTPases Activate ROCKs R-HSA-5627117",
+        "MAPK Targets/ Nuclear Events Mediated By MAP Kinases R-HSA-450282",
+        "MAPK Family Signaling Cascades R-HSA-5683057",
+        "Negative Regulation Of PI3K/AKT Network R-HSA-199418",
+        ""
+    ]
+
 
     # dataset_fp = get_filepath("data", "myocardial_infarction_preprocessed_4.h5ad")
     # model_fp = get_filepath("model", "small-v2.ckpt")

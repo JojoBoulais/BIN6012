@@ -80,7 +80,7 @@ if __name__ == "__main__":
     parser.add_argument("--organism", type=str, default="NCBITaxon:9606") # Human
     parser.add_argument("--cell_type", type=str, default="")
     parser.add_argument("--n_neighbors", type=int, default=20)
-    parser.add_argument("--n_top_genes", type=int, default=6000)
+    parser.add_argument("--n_top_genes", type=int, default=20_000)
     parser.add_argument("--omit_log_transform", action="store_true")
 
     main(parser.parse_args())
