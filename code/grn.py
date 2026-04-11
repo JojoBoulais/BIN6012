@@ -42,11 +42,6 @@ def main(argv):
     print("loading dataset.")
     adata = scanpy.read_h5ad(adata_fp)
 
-    print(adata.obs["disease"].unique())
-
-    print(len((adata.obs["disease"] == "myocardial infarction")
-                & (adata.obs["cell_type"] == "cardiac muscle myoblast")))
-
     # Processing only genes of interest
     pathways = Pathway.load_all_pathways()
     gene_list = []
@@ -55,23 +50,21 @@ def main(argv):
 
     gene_list = list(set(gene_list))
 
-    print(f"{len(gene_list)} genes included in GNinfer.")
-
     # Forcing human organism
     model.organisms = adata.var["organism"].unique()
 
     print("Creating GNInfer")
     grn_inferer = GNInfer(
-        how="most var across", # most var across
+        how="most var within", # most var across
         preprocess="softmax",
         head_agg="mean",
         filtration="none",
         genelist=gene_list, #gene_list, # processing only these gene with how="some"
-        num_genes=2000,
+        num_genes=1800,
         max_cells=0, # all cells
-        num_workers=8,
-        batch_size=16,
-        precomp_attn=False # <============ was True before
+        # num_workers=8,
+        # batch_size=16,
+        # precomp_attn=False # <============ was True before
     )
 
     cell_type = str(argv.cell_type).replace(" ", "_")
@@ -79,8 +72,7 @@ def main(argv):
     cell_diseases = ["normal", "myocardial infarction"]
     for disease in cell_diseases:
 
-        # if disease != "all":
-        #     adata = adata[adata.obs["disease"] == disease, :].copy()
+        adata_d = adata[adata.obs["disease"] == disease, :].copy()
 
         disease = str(disease).replace(" ", "_")
 
@@ -104,7 +96,7 @@ def main(argv):
 
         print("processing grn_inferer...")
         grn_inferer(model, 
-                    adata,
+                    adata_d,
                     cell_type=argv.cell_type)
 
         shutil.move(tmp_filename, grn_out_filename)

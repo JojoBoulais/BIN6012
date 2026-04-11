@@ -30,6 +30,7 @@ class Pathway():
 
         self.pathway = _pathways[pathway_name]
         self.genes = list(self.pathway.keys())
+        self.name = pathway_name
 
     def get_genes_ensembl(self, organism="human"):
         genes = []
@@ -49,6 +50,12 @@ class Pathway():
     @classmethod
     def load_all_pathways(cls):
         return [Pathway(pathway) for pathway in cls.pathways]
+
+    def get_name_as_path(self):
+        return self.name.replace(" ", "_").replace("/", "_")
+
+    def get_name(self):
+        return self.name
 
     # @classmethod
     # def extract_pathway_from_filepath(cls, filepath):

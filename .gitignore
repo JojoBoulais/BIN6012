@@ -1,7 +1,7 @@
 data/
 
 model/*.ckpt
-results/*
+
 tmp/*
 grn/*
 testdb/*

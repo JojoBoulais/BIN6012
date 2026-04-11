@@ -19,7 +19,9 @@ from pyvis import network as pnx
 from sklearn.metrics.pairwise import cosine_similarity
 from scprint2.tasks import GNInfer as _GNInfer
 
-from bengrn import BenGRN as _BenGRN, compute_pr
+from scipy.sparse import csc_matrix, csr_matrix, issparse
+
+from bengrn import BenGRN as _BenGRN#, compute_pr
 
 # Get the base seaborn color palette as hex list
 base_color_palette = sns.color_palette().as_hex()
@@ -239,6 +241,153 @@ class GNInfer(_GNInfer):
         super().__init__(*args, **kwargs)
 
 
+def compute_pr(
+    grn: np.array,
+    true: np.array,
+    do_auc: bool = True,
+    doplot: bool = True,
+):
+    """
+    compute_pr computes the precision and recall metrics for the given GRN and true matrix.
+
+    Args:
+        grn (np.array): The Gene Regulatory Network matrix, where each element represents the strength of the regulatory relationship between genes.
+        true (np.array): The ground truth matrix, where each element indicates the presence (1) or absence (0) of a regulatory relationship.
+        do_auc (bool, optional): Whether to compute the Area Under the Precision-Recall Curve (AUPRC). Defaults to True.
+        doplot (bool, optional): Whether to plot the precision and recall metrics. Defaults to True.
+
+    Raises:
+        ValueError: If the shape of the GRN and the true matrix do not match.
+
+    Returns:
+        dict: A dictionary containing precision, recall, and random precision metrics.
+    """
+    if grn.shape != true.shape:
+        raise ValueError("The shape of the GRN and the true matrix do not match.")
+    metrics = {}
+    if isinstance(grn, (csr_matrix, csc_matrix)):
+        grn = grn.toarray()
+    if isinstance(true, (csr_matrix, csc_matrix)):
+        true = true.toarray()
+    true = true.astype(bool)
+    tot = (grn.shape[0] * grn.shape[1]) - grn.shape[0]
+    precision = (grn[true] != 0).sum() / (grn != 0).sum()
+    recall = (grn[true] != 0).sum() / true.sum()
+    rand_prec = true.sum() / tot
+
+    if doplot:
+        print(
+            "precision: ",
+            precision,
+            "\nrecall: ",
+            recall,
+            "\nrandom precision:",
+            rand_prec,
+        )
+    metrics.update(
+        {
+            "precision": precision,
+            "recall": recall,
+            "rand_precision": rand_prec,
+        }
+    )
+    # Initialize lists to store precision and recall values
+    precision_list = [precision]
+    recall_list = [recall]
+    # Define the thresholds to vary
+    thresholds = np.append(
+        np.linspace(0, 1, 101)[:-2], np.log10(np.logspace(0.99, 1, 30))
+    )
+    thresholds = np.quantile(grn, thresholds)
+    # Calculate precision and recall for each threshold
+    if do_auc:
+        for threshold in tqdm.tqdm(thresholds[1:]):
+            precision = (grn[true] > threshold).sum() / (grn > threshold).sum()
+            recall = (grn[true] > threshold).sum() / true.sum()
+            precision_list.append(precision)
+            recall_list.append(recall)
+        # Calculate AUPRC by integrating the precision-recall curve
+        if 1.0 not in recall_list:
+            precision_list.insert(0, rand_prec)
+            recall_list.insert(0, recall_list[0])
+            precision_list.insert(0, rand_prec)
+            recall_list.insert(0, 1.0)
+        precision_list = np.nan_to_num(np.array(precision_list))
+        recall_list = np.nan_to_num(np.array(recall_list))
+        auprc = -np.trapz(precision_list, recall_list)
+        metrics["auprc"] = auprc
+
+        # Compute Average Precision (AP) manually
+        sorted_indices = np.argsort(-grn.flatten())
+        sorted_true = true.flatten()[sorted_indices]
+
+        tp_cumsum = np.cumsum(sorted_true)
+        fp_cumsum = np.cumsum(~sorted_true)
+
+        precision_at_k = tp_cumsum / (tp_cumsum + fp_cumsum)
+        recall_at_k = tp_cumsum / true.sum()
+
+        ap = np.sum(precision_at_k[1:] * np.diff(recall_at_k))
+        metrics["ap"] = ap
+        if doplot:
+            print("Average Precision (AP): ", ap)
+        if doplot:
+            print("Area Under Precision-Recall Curve (AUPRC): ", auprc)
+
+    # compute EPR
+    # get the indices of the topK highest values in "grn"
+    if isinstance(grn, csr_matrix):
+        grn = grn.toarray()
+    if isinstance(grn, csc_matrix):
+        grn = grn.toarray()
+    indices = np.argpartition(grn.flatten(), -int(true.sum()))[-int(true.sum()) :]
+    # Compute the odds ratio
+    # this is a debugger line
+    true_positive = true[np.unravel_index(indices, true.shape)].sum()
+    if true_positive == 0:
+        print("No true positives found. Returning EPR as 0.")
+    false_positive = true.sum() - true_positive
+    # this is normal as we compute on the same number of pred_pos as true_pos
+    false_negative = true.sum() - true_positive
+    true_negative = tot - true_positive - false_positive - false_negative
+    # Avoid division by zero
+    # this is a debugger line
+    if true_negative == 0 or false_positive == 0:
+        epr = float("inf")
+        odds_ratio = float("inf")
+    else:
+        epr = (true_positive / true.sum()) / ((true_positive + false_negative) / tot)
+        odds_ratio = (true_positive * true_negative) / (false_positive * false_negative)
+
+    metrics.update({"epr": epr, "odd_ratio": odds_ratio})
+    if doplot:
+        print("EPR:", epr)
+        plt.figure(figsize=(10, 8))
+        plt.plot(
+            recall_list,
+            precision_list,
+            marker=".",
+            linestyle="-",
+            color="b",
+            label="p-r",
+        )
+        plt.plot(
+            [recall_list[0], recall_list[-1]],
+            [rand_prec, rand_prec],
+            linestyle="--",
+            color="r",
+            label="Random Precision",
+        )
+        plt.legend(loc="lower left")
+        plt.title("Precision-Recall Curve")
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.xscale("log")
+        plt.grid(True)
+        plt.show()
+    return metrics
+
+
 class BenGRN(_BenGRN):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -302,3 +451,4 @@ class BenGRN(_BenGRN):
             doplot=self.doplot,
             do_auc=self.do_auc,
         )
+    
