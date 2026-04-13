@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional
 import bionty as bt
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.ma as ma
 import pandas as pd
 import scanpy as sc
 import seaborn as sns
 import torch
 import torch.nn.functional as F
+from torch.masked import masked_tensor
 from anndata import AnnData, concat
 from scdataloader import Collator, Preprocessor
 from scdataloader.data import SimpleAnnDataset
@@ -21,82 +23,15 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from scprint2.model import loss
+from scprint2.model import utils
 
 FILE_LOC = os.path.dirname(os.path.realpath(__file__))
-
-
-def mmd_loss(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
-    """
-    Compute Maximum Mean Discrepancy (MMD) loss between two 2D embedding matrices.
-
-    Args:
-        X (torch.Tensor): Tensor of shape (n1, emb_dim) - first set of embeddings
-        Y (torch.Tensor): Tensor of shape (n2, emb_dim) - second set of embeddings
-
-    Returns:
-        torch.Tensor: MMD loss value (negative to encourage dissimilarity)
-    """
-
-    def rbf_kernel(x, y, sigma):
-        """Compute RBF kernel between two sets of vectors"""
-        distance = torch.cdist(x, y, p=2) ** 2
-        return torch.exp(-distance / (2 * sigma**2))
-
-    def energy_kernel(x, y):
-        """Compute Energy kernel between two sets of vectors"""
-        distance = torch.cdist(x, y, p=2)
-        return -distance
-
-    # Use multiple kernel bandwidths for better performance
-    sigmas = [0]  # [0.1, 1.0, 10.0]
-    mmd_loss = 0.0
-
-    for sigma in sigmas:
-        # K(X, X) - kernel matrix within first group (n1 x n1)
-        # k_xx = rbf_kernel(X, X, sigma)
-        k_xx = energy_kernel(X, X)
-        # K(Y, Y) - kernel matrix within second group (n2 x n2)
-        # k_yy = rbf_kernel(Y, Y, sigma)
-        k_yy = energy_kernel(Y, Y)
-        # K(X, Y) - kernel matrix between groups (n1 x n2)
-        # k_xy = rbf_kernel(X, Y, sigma)
-        k_xy = energy_kernel(X, Y)
-
-        # Unbiased MMD estimation
-        n1 = X.shape[0]
-        n2 = Y.shape[0]
-
-        # Remove diagonal elements for unbiased estimation of K(X,X) and K(Y,Y)
-        # For K(X,X): exclude diagonal
-        if n1 > 1:
-            mask_xx = 1 - torch.eye(n1, device=X.device)
-            k_xx_term = (k_xx * mask_xx).sum() / (n1 * (n1 - 1))
-        else:
-            k_xx_term = 0.0
-
-        # For K(Y,Y): exclude diagonal
-        if n2 > 1:
-            mask_yy = 1 - torch.eye(n2, device=Y.device)
-            k_yy_term = (k_yy * mask_yy).sum() / (n2 * (n2 - 1))
-        else:
-            k_yy_term = 0.0
-
-        # For K(X,Y): use all elements (no diagonal to exclude)
-        k_xy_term = k_xy.mean()
-
-        # MMD^2 = E[K(X,X)] + E[K(Y,Y)] - 2*E[K(X,Y)]
-        mmd_squared = k_xx_term + k_yy_term - 2 * k_xy_term
-        mmd_loss += mmd_squared
-
-    # Return negative MMD to encourage dissimilarity (higher MMD = more different)
-    return mmd_loss / len(sigmas)
 
 
 class FinetuneGRN:
     def __init__(
         self,
         batch_key: str = "batch",
-        predict_keys: List[str] = ["cell_type_ontology_term_id"],
         max_len: int = 5000,
         learn_batches_on: Optional[str] = None,
         num_workers: int = 8,
@@ -108,7 +43,8 @@ class FinetuneGRN:
         frac_train: float = 0.8,
         loss_scalers: dict = {},
         use_knn: bool = True,
-    ):
+        mask_frac: float = 0.3
+    ) -> torch.nn.Module:
         """
         Embedder a class to embed and annotate cells using a model
 
@@ -121,7 +57,6 @@ class FinetuneGRN:
                 batch correction might indeed be better learnt with this additional argument in some cases.
             do_mmd_on (str, optional):The key in adata.obs to learn batch embeddings on. Defaults to None.
                 this embedding should have less batch information in it, after finetuning.
-            predict_keys (List[str], optional): List of keys in adata.obs to predict during fine-tuning. Defaults to ["cell_type_ontology_term_id"].
             batch_size (int, optional): The size of the batches to be used in the DataLoader. Defaults to 64.
             num_workers (int, optional): The number of worker processes to use for data loading. Defaults to 8.
             max_len (int, optional): The maximum length of the sequences to be processed. Defaults to 5000.
@@ -130,14 +65,14 @@ class FinetuneGRN:
             ft_mode (str, optional): The fine-tuning mode, either "xpressor" or "full". Defaults to "xpressor".
             frac_train (float, optional): The fraction of data to be used for training. Defaults to 0.8.
             loss_scalers (dict, optional): A dictionary specifying the scaling factors for different loss components. Defaults to {}.
-                expr, class, mmd, kl, and any of the predict_keys can be specified.
+                expr, class, mmd, kl
             use_knn (bool, optional): Whether to use k-nearest neighbors information. Defaults to True.
+            mask_frac (float, optional): Fraction of the input to mask. Defaults to 0.3.
         """
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.batch_key = batch_key
         self.learn_batches_on = learn_batches_on
-        self.predict_keys = predict_keys
         self.max_len = max_len
         self.lr = lr
         self.num_epochs = num_epochs
@@ -148,6 +83,7 @@ class FinetuneGRN:
         self.do_mmd_on = do_mmd_on
         self.loss_scalers = loss_scalers
         self.use_knn = use_knn
+        self.mask_ratio = mask_frac
 
     def __call__(
         self,
@@ -191,9 +127,6 @@ class FinetuneGRN:
                 i.cross_attn.requires_grad = True
             for val in model.compressor.parameters():
                 val.requires_grad = True
-            for val in self.predict_keys:
-                for val in model.cls_decoders[val].parameters():
-                    val.requires_grad = True
         elif self.ft_mode == "full":
             for val in model.parameters():
                 val.requires_grad = True
@@ -217,14 +150,6 @@ class FinetuneGRN:
             mencoders[k] = {va: ke for ke, va in v.items()}
         # this needs to remain its original name as it is expect like that by collator, otherwise need to send org_to_id as params
 
-        for i in self.predict_keys:
-            if len(set(train_data.obs[i]) - set(mencoders[i].keys())) > 0:
-                print("missing labels for ", i)
-                train_data.obs[i] = train_data.obs[i].apply(
-                    lambda x: x if x in mencoders[i] else "unknown"
-                )
-        if "organism_ontology_term_id" not in self.predict_keys:
-            self.predict_keys.append("organism_ontology_term_id")
         # create datasets
         self.batch_encoder = {
             i: n
@@ -235,17 +160,11 @@ class FinetuneGRN:
         mencoders[self.batch_key] = self.batch_encoder
         train_dataset = SimpleAnnDataset(
             train_data,
-            obs_to_output=self.predict_keys + [self.batch_key],
+            obs_to_output=[self.batch_key],
             get_knn_cells=model.expr_emb_style == "metacell" and self.use_knn,
             encoder=mencoders,
         )
         if val_data is not None:
-            for i in self.predict_keys:
-                if i != "organism_ontology_term_id":
-                    if len(set(val_data.obs[i]) - set(mencoders[i].keys())) > 0:
-                        val_data.obs[i] = val_data.obs[i].apply(
-                            lambda x: x if x in mencoders[i] else "unknown"
-                        )
             self.batch_encoder.update(
                 {
                     i: n + len(self.batch_encoder)
@@ -258,7 +177,7 @@ class FinetuneGRN:
             mencoders[self.batch_key] = self.batch_encoder
             val_dataset = SimpleAnnDataset(
                 val_data,
-                obs_to_output=self.predict_keys + [self.batch_key],
+                obs_to_output=[self.batch_key],
                 get_knn_cells=model.expr_emb_style == "metacell" and self.use_knn,
                 encoder=mencoders,
             )
@@ -267,7 +186,7 @@ class FinetuneGRN:
         collator = Collator(
             organisms=model.organisms,
             valid_genes=model.genes,
-            class_names=self.predict_keys + [self.batch_key],
+            class_names=[self.batch_key],
             how="random expr",  # or "all expr" for full expression
             max_len=self.max_len,
             org_to_id=mencoders.get("organism_ontology_term_id", {}),
@@ -307,7 +226,6 @@ class FinetuneGRN:
         ## PREPARING THE OPTIM
         all_params = (
             list(model.parameters())
-            # + list(batch_cls.parameters())
             + (
                 list(self.batch_emb.parameters())
                 if self.learn_batches_on is not None
@@ -351,8 +269,10 @@ class FinetuneGRN:
             model.train()
             for batch_idx, batch in enumerate(pbar):
                 optimizer.zero_grad()
-                total_loss, cls_loss, mmd, loss_expr = self.batch_corr_pass(
-                    batch, model
+                total_loss, loss_expr = self.batch_corr_pass(
+                    batch,
+                    model,
+                    self.mask_ratio
                 )
                 # Backward pass
                 scaler.scale(total_loss).backward()
@@ -389,8 +309,10 @@ class FinetuneGRN:
 
                 with torch.no_grad():
                     for batch in val_loader:  # tqdm(val_loader, desc="Validation"):
-                        loss_val, cls_loss, mmd, loss_expr = self.batch_corr_pass(
-                            batch, model
+                        loss_val, loss_expr = self.batch_corr_pass(
+                            batch,
+                            model,
+                            self.mask_ratio
                         )
                         val_loss_to_prt += loss_val.item()
                         val_loss += loss_val.item()
@@ -439,43 +361,39 @@ class FinetuneGRN:
         model.eval()
         return model
 
-    def batch_corr_pass(self, batch, model):
-        gene_pos = batch["genes"].to(model.device)
+    def batch_corr_pass(self, batch, model, mask_frac):
+        genes = batch["genes"].to(model.device)
         expression = batch["x"].to(model.device)
         depth = batch["depth"].to(model.device)
         class_elem = batch["class"].long().to(model.device)
         total_loss = 0
+        mask_ratio = mask_frac
         # Forward pass with automatic mixed precisio^n
         with torch.cuda.amp.autocast():
             # Forward pass
             output = model.forward(
-                gene_pos,
+                genes,
                 expression,
                 req_depth=depth,
                 depth_mult=expression.sum(1),
                 do_class=True,
                 metacell_token=torch.zeros_like(depth),
+                mask=simple_masker([batch, seq_length], mask_ratio=mask_ratio)
             )
-            ## adaptor on ct_emb
-            # ctpos = model.classes.index("cell_type_ontology_term_id") + 1
-            # emb = output["output_cell_embs"][:, ctpos, :]
-            #
-            # output["output_cell_embs"][:, ctpos, :] = adaptor_layer(
-            #    torch.cat([emb, class_elem[:, 1].unsqueeze(1).float()], dim=1)
-            # )
+
             if self.learn_batches_on is not None:
                 batch_pos = model.classes.index(self.learn_batches_on) + 1
                 output["output_cell_embs"][:, batch_pos, :] = self.batch_emb(
                     class_elem[:, -1]
                 )
 
-            ## generate expr loss
             output_gen = model._generate(
                 cell_embs=output["output_cell_embs"],
                 gene_pos=gene_pos,
                 depth_mult=expression.sum(1),
                 req_depth=depth,
             )
+            ## generate expr loss
             if "zero_logits" in output_gen:
                 loss_expr = loss.zinb(
                     theta=output_gen["disp"],
@@ -500,60 +418,4 @@ class FinetuneGRN:
             # Add expression loss to total
             total_loss += loss_expr * self.loss_scalers.get("expr", 0.5)
 
-            # ct
-            cls_loss = 0
-            for clas in self.predict_keys:
-                cls_output = output.get("cls_output_" + clas)
-                # ct_output = output["output_cell_embs"][:, ctpos, :]
-                # cls_output = model.cls_decoders["cell_type_ontology_term_id"](ct_output)
-                cls_loss += loss.hierarchical_classification(
-                    pred=cls_output,
-                    cl=class_elem[:, self.predict_keys.index(clas)],
-                    labels_hierarchy=(
-                        model.mat_labels_hierarchy.get(clas).to("cuda")
-                        if clas in model.mat_labels_hierarchy
-                        else None
-                    ),
-                ) * self.loss_scalers.get(clas, 1)
-
-            # organ class
-            # org_emb = output["compressed_cell_embs"][
-            #    model.classes.index("organism_ontology_term_id") + 1
-            # ]
-            # cls_loss += F.cross_entropy(
-            #    input=batch_cls(org_emb),
-            #    target=class_elem[:, 1],
-            # )
-            total_loss += cls_loss * self.loss_scalers.get("class", 1)
-            tot_mmd = 0
-            if self.do_mmd_on is not None:
-                pos = model.classes.index(self.do_mmd_on) + 1
-                # Apply gradient reversal to the input embedding
-                selected_emb = (
-                    output["compressed_cell_embs"][pos]
-                    if model.compressor is not None
-                    else output["input_cell_embs"][:, pos, :]
-                )
-                for i in set(class_elem[:, -1].cpu().numpy()):
-                    if (class_elem[:, -1] == i).sum() < 2:
-                        # need at least 2 samples to compute mmd
-                        class_elem[class_elem[:, -1] == i, 1] = (
-                            -1
-                        )  # assign to dummy class
-                    # compare each batch to all other batches
-                for i in set(class_elem[:, -1].cpu().numpy()):
-                    if i == -1:
-                        continue
-                    X, Y = (
-                        selected_emb[class_elem[:, -1] == i],
-                        selected_emb[class_elem[:, -1] != i],
-                    )
-                    mmd = mmd_loss(X, Y)
-                    if torch.isnan(mmd):
-                        print("mmd nan")
-                    tot_mmd += mmd.item() if not torch.isnan(mmd) else 0
-                # Add adversarial loss to total loss
-                total_loss += tot_mmd * self.loss_scalers.get("mmd", 3)
-            if "vae_kl_loss" in output:
-                total_loss += output["vae_kl_loss"] * self.loss_scalers.get("kl", 0.5)
-        return total_loss, cls_loss, tot_mmd, loss_expr
+        return total_loss, loss_expr

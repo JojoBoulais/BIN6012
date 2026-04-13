@@ -10,4 +10,4 @@ slurm_output/
 venv_scprint2/
 .cache/
 
-project.sh
+./project.sh
