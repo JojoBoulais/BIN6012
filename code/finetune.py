@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from scprint2.model import loss
-from scprint2.model import utils
+from scprint2.model import simple_masker
 
 FILE_LOC = os.path.dirname(os.path.realpath(__file__))
 
@@ -31,13 +31,10 @@ FILE_LOC = os.path.dirname(os.path.realpath(__file__))
 class FinetuneGRN:
     def __init__(
         self,
-        batch_key: str = "batch",
         max_len: int = 5000,
-        learn_batches_on: Optional[str] = None,
         num_workers: int = 8,
         batch_size: int = 16,
         num_epochs: int = 8,
-        do_mmd_on: Optional[str] = None,
         lr: float = 0.0002,
         ft_mode: str = "xpressor",
         frac_train: float = 0.8,
@@ -49,14 +46,6 @@ class FinetuneGRN:
         Embedder a class to embed and annotate cells using a model
 
         Args:
-            batch_key (str, optional): The key in adata.obs that indicates the batch information. Defaults to "batch".
-            learn_batches_on (str, optional): The key in adata.obs to learn batch embeddings on. Defaults to None.
-                if none, will not learn the batch embeddings.
-                the goal is e.g. when having a new species, to learn an embedding for it during finetuning and replace
-                the "learn_batches_on" embedding in the model with it, in this case it should be "organism_ontology_term_id".
-                batch correction might indeed be better learnt with this additional argument in some cases.
-            do_mmd_on (str, optional):The key in adata.obs to learn batch embeddings on. Defaults to None.
-                this embedding should have less batch information in it, after finetuning.
             batch_size (int, optional): The size of the batches to be used in the DataLoader. Defaults to 64.
             num_workers (int, optional): The number of worker processes to use for data loading. Defaults to 8.
             max_len (int, optional): The maximum length of the sequences to be processed. Defaults to 5000.
@@ -65,14 +54,12 @@ class FinetuneGRN:
             ft_mode (str, optional): The fine-tuning mode, either "xpressor" or "full". Defaults to "xpressor".
             frac_train (float, optional): The fraction of data to be used for training. Defaults to 0.8.
             loss_scalers (dict, optional): A dictionary specifying the scaling factors for different loss components. Defaults to {}.
-                expr, class, mmd, kl
+                expr, kl
             use_knn (bool, optional): Whether to use k-nearest neighbors information. Defaults to True.
             mask_frac (float, optional): Fraction of the input to mask. Defaults to 0.3.
         """
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.batch_key = batch_key
-        self.learn_batches_on = learn_batches_on
         self.max_len = max_len
         self.lr = lr
         self.num_epochs = num_epochs
@@ -80,7 +67,6 @@ class FinetuneGRN:
         self.frac_train = frac_train
         self.batch_emb = None
         self.batch_encoder = {}
-        self.do_mmd_on = do_mmd_on
         self.loss_scalers = loss_scalers
         self.use_knn = use_knn
         self.mask_ratio = mask_frac
@@ -150,43 +136,26 @@ class FinetuneGRN:
             mencoders[k] = {va: ke for ke, va in v.items()}
         # this needs to remain its original name as it is expect like that by collator, otherwise need to send org_to_id as params
 
-        # create datasets
-        self.batch_encoder = {
-            i: n
-            for n, i in enumerate(
-                train_data.obs[self.batch_key].astype("category").cat.categories
-            )
-        }
-        mencoders[self.batch_key] = self.batch_encoder
         train_dataset = SimpleAnnDataset(
             train_data,
-            obs_to_output=[self.batch_key],
+            obs_to_output=["organism_ontology_term_id"],
             get_knn_cells=model.expr_emb_style == "metacell" and self.use_knn,
             encoder=mencoders,
         )
+
         if val_data is not None:
-            self.batch_encoder.update(
-                {
-                    i: n + len(self.batch_encoder)
-                    for n, i in enumerate(
-                        val_data.obs[self.batch_key].astype("category").cat.categories
-                    )
-                    if i not in self.batch_encoder
-                }
-            )
-            mencoders[self.batch_key] = self.batch_encoder
             val_dataset = SimpleAnnDataset(
                 val_data,
-                obs_to_output=[self.batch_key],
+                obs_to_output=["organism_ontology_term_id"],
                 get_knn_cells=model.expr_emb_style == "metacell" and self.use_knn,
                 encoder=mencoders,
             )
 
+        print(model.organisms)
         # Create collator
         collator = Collator(
             organisms=model.organisms,
             valid_genes=model.genes,
-            class_names=[self.batch_key],
             how="random expr",  # or "all expr" for full expression
             max_len=self.max_len,
             org_to_id=mencoders.get("organism_ontology_term_id", {}),
@@ -209,28 +178,9 @@ class FinetuneGRN:
                 shuffle=False,
             )
 
-        if self.learn_batches_on is not None:
-            if val_data is not None:
-                print(
-                    "all batch key values in val_data should also be present in train_adata!!!"
-                )
-            self.batch_emb = torch.nn.Embedding(
-                num_embeddings=train_data.obs[self.batch_key].nunique(),
-                embedding_dim=(
-                    model.compressor[self.learn_batches_on].fc_mu.weight.shape[0]
-                    if hasattr(model, "compressor")
-                    else model.d_model
-                ),
-            )
-
         ## PREPARING THE OPTIM
         all_params = (
             list(model.parameters())
-            + (
-                list(self.batch_emb.parameters())
-                if self.learn_batches_on is not None
-                else []
-            )
         )
 
         # Setup optimizer
@@ -262,14 +212,12 @@ class FinetuneGRN:
             train_loss = 0.0
             train_steps = 0
             avg_expr = 0
-            avg_cls = 0
-            avg_mmd = 0
 
             pbar = tqdm(train_loader, desc="Training")
             model.train()
             for batch_idx, batch in enumerate(pbar):
                 optimizer.zero_grad()
-                total_loss, loss_expr = self.batch_corr_pass(
+                total_loss, loss_expr = self.expr_loss(
                     batch,
                     model,
                     self.mask_ratio
@@ -283,16 +231,12 @@ class FinetuneGRN:
 
                 train_loss += total_loss.item()
                 train_steps += 1
-                avg_cls += cls_loss.item()
                 avg_expr += loss_expr.item()
-                avg_mmd += mmd
                 # Update progress bar
                 pbar.set_postfix(
                     {
                         "loss": f"{total_loss.item():.4f}",
                         "avg_loss": f"{train_loss / train_steps:.4f}",
-                        "cls_loss": f"{cls_loss.item():.4f}",
-                        "mmd_loss": f"{mmd:.4f}",
                         "expr_loss": f"{loss_expr.item():.4f}",
                     }
                 )
@@ -303,13 +247,11 @@ class FinetuneGRN:
                 val_loss = 0.0
                 val_steps = 0
                 val_loss_expr = 0.0
-                val_mmd = 0.0
-                val_cls = 0.0
                 val_loss_to_prt = 0.0
 
                 with torch.no_grad():
                     for batch in val_loader:  # tqdm(val_loader, desc="Validation"):
-                        loss_val, loss_expr = self.batch_corr_pass(
+                        loss_val, loss_expr = self.expr_loss(
                             batch,
                             model,
                             self.mask_ratio
@@ -318,8 +260,6 @@ class FinetuneGRN:
                         val_loss += loss_val.item()
                         val_steps += 1
                         val_loss_expr += loss_expr.item()
-                        val_mmd += mmd
-                        val_cls += cls_loss.item()
                 try:
                     avg_val_loss = val_loss_to_prt / val_steps
                     avg_train_loss = train_loss / train_steps
@@ -329,12 +269,8 @@ class FinetuneGRN:
                     )
                     avg_train_loss = 0
                 print(
-                    "cls_loss: {:.4f}, mmd_loss: {:.4f}, expr_loss: {:.4f}".format(
-                        val_cls / val_steps,
-                        val_mmd / val_steps,
                         val_loss_expr / val_steps,
                     )
-                )
                 print(f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
                 # Store LR before scheduler step for comparison
@@ -361,15 +297,17 @@ class FinetuneGRN:
         model.eval()
         return model
 
-    def batch_corr_pass(self, batch, model, mask_frac):
+    def expr_loss(self, batch, model, mask_frac):
         genes = batch["genes"].to(model.device)
         expression = batch["x"].to(model.device)
         depth = batch["depth"].to(model.device)
-        class_elem = batch["class"].long().to(model.device)
         total_loss = 0
         mask_ratio = mask_frac
+
+        print(expression)
+
         # Forward pass with automatic mixed precisio^n
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             # Forward pass
             output = model.forward(
                 genes,
@@ -378,14 +316,8 @@ class FinetuneGRN:
                 depth_mult=expression.sum(1),
                 do_class=True,
                 metacell_token=torch.zeros_like(depth),
-                mask=simple_masker([batch, seq_length], mask_ratio=mask_ratio)
+                mask=simple_masker([int(expression.shape)], mask_ratio=mask_ratio)
             )
-
-            if self.learn_batches_on is not None:
-                batch_pos = model.classes.index(self.learn_batches_on) + 1
-                output["output_cell_embs"][:, batch_pos, :] = self.batch_emb(
-                    class_elem[:, -1]
-                )
 
             output_gen = model._generate(
                 cell_embs=output["output_cell_embs"],
