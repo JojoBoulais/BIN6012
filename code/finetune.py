@@ -316,12 +316,12 @@ class FinetuneGRN:
                 depth_mult=expression.sum(1),
                 do_class=True,
                 metacell_token=torch.zeros_like(depth),
-                mask=simple_masker([int(expression.shape)], mask_ratio=mask_ratio)
+                mask=simple_masker(list(expression.shape), mask_ratio=mask_ratio).to(model.device)
             )
 
             output_gen = model._generate(
                 cell_embs=output["output_cell_embs"],
-                gene_pos=gene_pos,
+                gene_pos=genes,
                 depth_mult=expression.sum(1),
                 req_depth=depth,
             )
@@ -333,15 +333,14 @@ class FinetuneGRN:
                     mu=output_gen["mean"],
                     target=expression,
                 )
-                if model.zinb_and_mse:
-                    loss_expr += (
-                        loss.mse(
-                            input=torch.log(output_gen["mean"] + 1)
-                            * (1 - torch.sigmoid(output_gen["zero_logits"])),
-                            target=torch.log(expression + 1),
-                        )
-                        / 10  # scale to make it more similar to the zinb
+                loss_expr += (
+                    loss.mse(
+                        input=torch.log(output_gen["mean"] + 1)
+                        * (1 - torch.sigmoid(output_gen["zero_logits"])),
+                        target=torch.log(expression + 1),
                     )
+                    / 10  # scale to make it more similar to the zinb
+                )
             else:
                 loss_expr = loss.mse(
                     input=torch.log(output_gen["mean"] + 1),
