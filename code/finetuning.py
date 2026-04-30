@@ -7,6 +7,7 @@ import scanpy as sc
 import torch
 import os
 
+
 def main(argv):
     # Load the training and validation dataset
     if os.path.exists(argv.model_file):
@@ -36,21 +37,22 @@ def main(argv):
 
     # Creating the fintuner
     print("Initializing the fintuner...")
-    finetuner = FinetuneGRN(ft_mode="full")
+    finetuner = FinetuneGRN()
 
-    #Finetuning the model
+    # Finetuning the model
     print("Finetuning the model...")
     finetuned_model = finetuner(model=model, adata=adata)
 
     # Saving the finetuned model
     torch.save(finetuned_model, "fintuned_GRN_model.pth")
 
+
 if __name__ == "__main__":
     parser = ArgumentParser(
         prog="Finetuning the scprint-2 model.",
         description="Generating a Denoised h5ad file from a preprocessed dataset."
-        )
-    
+    )
+
     parser.add_argument("model_file")
     parser.add_argument("h5ad_file")
 

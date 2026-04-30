@@ -1,0 +1,8 @@
+	collectri	omnipath
+precision	0.03629	0.06859
+recall	1.0	1.0
+rand_precision	0.0372	0.07027
+auprc	0.04404	0.06331
+ap	0.04573	0.06456
+epr	0.88148	0.70569
+odd_ratio	0.87331	0.67418

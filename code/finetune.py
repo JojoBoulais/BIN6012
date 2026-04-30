@@ -178,7 +178,7 @@ class FinetuneGRN:
                 shuffle=False,
             )
 
-        ## PREPARING THE OPTIM
+        # PREPARING THE OPTIM
         all_params = (
             list(model.parameters())
         )
@@ -203,10 +203,11 @@ class FinetuneGRN:
         for k, i in model.mat_labels_hierarchy.items():
             model.mat_labels_hierarchy[k] = i.to(model.device)
 
-        ## train
+        # train
         for epoch in range(self.num_epochs):
             print(f"\nEpoch {epoch + 1}/{self.num_epochs}")
-            print(f"Current learning rate: {optimizer.param_groups[0]['lr']:.2e}")
+            print(
+                f"Current learning rate: {optimizer.param_groups[0]['lr']:.2e}")
 
             # Training phase
             train_loss = 0.0
@@ -225,7 +226,8 @@ class FinetuneGRN:
                 # Backward pass
                 scaler.scale(total_loss).backward()
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
 
@@ -250,7 +252,8 @@ class FinetuneGRN:
                 val_loss_to_prt = 0.0
 
                 with torch.no_grad():
-                    for batch in val_loader:  # tqdm(val_loader, desc="Validation"):
+                    # tqdm(val_loader, desc="Validation"):
+                    for batch in val_loader:
                         loss_val, loss_expr = self.expr_loss(
                             batch,
                             model,
@@ -269,9 +272,10 @@ class FinetuneGRN:
                     )
                     avg_train_loss = 0
                 print(
-                        val_loss_expr / val_steps,
-                    )
-                print(f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+                    val_loss_expr / val_steps,
+                )
+                print(
+                    f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
                 # Store LR before scheduler step for comparison
                 lr_before = optimizer.param_groups[0]["lr"]
@@ -316,16 +320,17 @@ class FinetuneGRN:
                 depth_mult=expression.sum(1),
                 do_class=True,
                 metacell_token=torch.zeros_like(depth),
-                mask=simple_masker(list(expression.shape), mask_ratio=mask_ratio).to(model.device)
+                mask=simple_masker([int(expression.shape)],
+                                   mask_ratio=mask_ratio)
             )
 
             output_gen = model._generate(
                 cell_embs=output["output_cell_embs"],
-                gene_pos=genes,
+                gene_pos=gene_pos,
                 depth_mult=expression.sum(1),
                 req_depth=depth,
             )
-            ## generate expr loss
+            # generate expr loss
             if "zero_logits" in output_gen:
                 loss_expr = loss.zinb(
                     theta=output_gen["disp"],
@@ -333,14 +338,15 @@ class FinetuneGRN:
                     mu=output_gen["mean"],
                     target=expression,
                 )
-                loss_expr += (
-                    loss.mse(
-                        input=torch.log(output_gen["mean"] + 1)
-                        * (1 - torch.sigmoid(output_gen["zero_logits"])),
-                        target=torch.log(expression + 1),
+                if model.zinb_and_mse:
+                    loss_expr += (
+                        loss.mse(
+                            input=torch.log(output_gen["mean"] + 1)
+                            * (1 - torch.sigmoid(output_gen["zero_logits"])),
+                            target=torch.log(expression + 1),
+                        )
+                        / 10  # scale to make it more similar to the zinb
                     )
-                    / 10  # scale to make it more similar to the zinb
-                )
             else:
                 loss_expr = loss.mse(
                     input=torch.log(output_gen["mean"] + 1),

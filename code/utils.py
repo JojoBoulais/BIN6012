@@ -1,6 +1,7 @@
 from scprint2 import scPRINT2
 import torch
 
+
 def load_model_with_cuda_if_avail(model_fp):
     """
     Load model from filepath, enable cuda if available

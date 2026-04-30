@@ -21,13 +21,13 @@ from scprint2.tasks import GNInfer as _GNInfer
 
 from scipy.sparse import csc_matrix, csr_matrix, issparse
 
-from bengrn import BenGRN as _BenGRN#, compute_pr
+from bengrn import BenGRN as _BenGRN  # , compute_pr
 
 # Get the base seaborn color palette as hex list
 base_color_palette = sns.color_palette().as_hex()
 
 
-def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
+def customize_GRNAnnData(obj: GRNAnnData) -> GRNAnnData:
 
     def plot_subgraph(
         self,
@@ -37,7 +37,7 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
         interactive: bool = False,
         do_enr: bool = False,
         # color_overlap: pd.DataFrame | None = None,
-        color_edges : bool = True,
+        color_edges: bool = True,
         node_size: int = 3000,
         font_size: int = 14,
         out_filepath: str = "",
@@ -62,7 +62,7 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
         Returns:
             d3graph or None: The d3graph object if interactive is True, otherwise None.
         """
-        
+
         # Gathering gene symbols
         rn = self.rn
 
@@ -94,7 +94,8 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
             edge_colors = {}
             for geneA, row in mat.iterrows():
                 for geneB, value in row.items():
-                    edge_colors[(geneA, geneB)] = value if pd.notna(value) else 0
+                    edge_colors[(geneA, geneB)] = value if pd.notna(
+                        value) else 0
 
             # Get min and max values for normalization
             vmin, vmax = mat.min(axis=None), mat.max(axis=None)
@@ -116,7 +117,8 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
                         if (gene1, gene2) in edge_colors:
                             rgba = cmap(norm(edge_colors[(gene1, gene2)]))
                             hex_color = mcolors.rgb2hex(rgba)
-                            d3.edge_properties[(gene1, gene2)]["color"] = hex_color
+                            d3.edge_properties[(gene1, gene2)
+                                               ]["color"] = hex_color
                         else:
                             d3.edge_properties[(gene1, gene2)][
                                 "color"
@@ -200,7 +202,7 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
 
             if out_filepath:
                 plt.savefig(out_filepath)
-            
+
         if do_enr:
             enr = gp.enrichr(
                 gene_list=list(G.nodes),
@@ -230,9 +232,10 @@ def customize_GRNAnnData(obj : GRNAnnData) -> GRNAnnData:
     obj.rn = {k: v for k, v in obj.var[obj.gene_col].items()}
 
     obj.plot_subgraph = types.MethodType(plot_subgraph,
-            obj)
-    
+                                         obj)
+
     return obj
+
 
 class GNInfer(_GNInfer):
 
@@ -263,7 +266,8 @@ def compute_pr(
         dict: A dictionary containing precision, recall, and random precision metrics.
     """
     if grn.shape != true.shape:
-        raise ValueError("The shape of the GRN and the true matrix do not match.")
+        raise ValueError(
+            "The shape of the GRN and the true matrix do not match.")
     metrics = {}
     if isinstance(grn, (csr_matrix, csc_matrix)):
         grn = grn.toarray()
@@ -299,6 +303,7 @@ def compute_pr(
         np.linspace(0, 1, 101)[:-2], np.log10(np.logspace(0.99, 1, 30))
     )
     thresholds = np.quantile(grn, thresholds)
+
     # Calculate precision and recall for each threshold
     if do_auc:
         for threshold in tqdm.tqdm(thresholds[1:]):
@@ -306,6 +311,7 @@ def compute_pr(
             recall = (grn[true] > threshold).sum() / true.sum()
             precision_list.append(precision)
             recall_list.append(recall)
+
         # Calculate AUPRC by integrating the precision-recall curve
         if 1.0 not in recall_list:
             precision_list.insert(0, rand_prec)
@@ -340,7 +346,8 @@ def compute_pr(
         grn = grn.toarray()
     if isinstance(grn, csc_matrix):
         grn = grn.toarray()
-    indices = np.argpartition(grn.flatten(), -int(true.sum()))[-int(true.sum()) :]
+    indices = np.argpartition(
+        grn.flatten(), -int(true.sum()))[-int(true.sum()):]
     # Compute the odds ratio
     # this is a debugger line
     true_positive = true[np.unravel_index(indices, true.shape)].sum()
@@ -352,12 +359,23 @@ def compute_pr(
     true_negative = tot - true_positive - false_positive - false_negative
     # Avoid division by zero
     # this is a debugger line
-    if true_negative == 0 or false_positive == 0:
-        epr = float("inf")
-        odds_ratio = float("inf")
+    denom_epr = (true_positive + false_negative) / tot
+    if denom_epr == 0:
+        epr = np.nan
     else:
-        epr = (true_positive / true.sum()) / ((true_positive + false_negative) / tot)
-        odds_ratio = (true_positive * true_negative) / (false_positive * false_negative)
+        epr = (true_positive / true.sum()) / denom_epr
+
+    # Odds ratio
+    denom_or = false_positive * false_negative
+    num_or = true_positive * true_negative
+
+    if denom_or == 0:
+        if num_or == 0:
+            odds_ratio = 0
+        else:
+            odds_ratio = float("inf")
+    else:
+        odds_ratio = num_or / denom_or
 
     metrics.update({"epr": epr, "odd_ratio": odds_ratio})
     if doplot:
@@ -385,6 +403,7 @@ def compute_pr(
         plt.xscale("log")
         plt.grid(True)
         plt.show()
+
     return metrics
 
 
@@ -392,24 +411,7 @@ class BenGRN(_BenGRN):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def compare_to(
-        self,
-        to: pd.DataFrame = "collectri",
-        organism: str = "human",
-    ):
-        """
-        compare_to compares the GRN to another GRN.
-
-        Args:
-            other (Optional[GRNAnnData], optional): The other GRN to compare to. Defaults to None.
-                If not given can use a default GRN from the 'to' argument.
-            to (str, optional): The name of the other GRN to compare to. Defaults to "collectri".
-                If 'other' is given, this argument is ignored.
-            organism (str, optional): The organism of the GRN to compare to. Defaults to "human".
-
-        Returns:
-            dict: The metrics of the comparison.
-        """
+    def extract_adj_da(self, to):
 
         gt = to
 
@@ -438,12 +440,28 @@ class BenGRN(_BenGRN):
         if self.only_tf:
             da = da[[i in gt.source.unique() for i in genes], :]
             adj = adj[[i in gt.source.unique() for i in genes], :]
-        if self.doplot:
-            print("intersection of {} genes".format(len(intersection)))
-            print("intersection pct:", len(intersection) / len(self.grn.grn.index))
-            print("only tf: ", self.only_tf)
-            print("using only tf: ", adj.shape[0] / self.grn.shape[1])
-            print("total true edges: ", da.sum())
+
+        return adj, da
+
+    def compare_to(
+        self,
+        to: pd.DataFrame = "collectri"
+    ):
+        """
+        compare_to compares the GRN to another GRN.
+
+        Args:
+            other (Optional[GRNAnnData], optional): The other GRN to compare to. Defaults to None.
+                If not given can use a default GRN from the 'to' argument.
+            to (str, optional): The name of the other GRN to compare to. Defaults to "collectri".
+                If 'other' is given, this argument is ignored.
+            organism (str, optional): The organism of the GRN to compare to. Defaults to "human".
+
+        Returns:
+            dict: The metrics of the comparison.
+        """
+
+        adj, da = self.extract_adj_da(to)
 
         return compute_pr(
             adj,
@@ -451,4 +469,3 @@ class BenGRN(_BenGRN):
             doplot=self.doplot,
             do_auc=self.do_auc,
         )
-    

@@ -8,8 +8,8 @@ from utils_filepath import *
 from utils import *
 from pathlib import Path
 
-def main(argv):
 
+def main(argv):
 
     if os.path.exists(argv.model_file):
         model_fp = argv.model_file
@@ -26,7 +26,6 @@ def main(argv):
         if not os.path.exists(adata_fp):
             print(f"{adata_fp} does not exists.")
             exit(1)
-
 
     print("loading model...")
     model = load_model_with_cuda_if_avail(model_fp)
@@ -55,14 +54,14 @@ def main(argv):
     out_filepath = out_filepath + Path(adata_fp).stem + "_denoised.h5ad"
     nadata.write_h5ad(out_filepath)
 
-    
+
 if __name__ == "__main__":
 
     parser = ArgumentParser(
         prog='scPrint2 Denoising on a preprocessed dataset',
         description="Generating a Denoised h5ad file from a preprocessed dataset."
-        )
-    
+    )
+
     parser.add_argument("model_file")
     parser.add_argument("h5ad_file")
 
