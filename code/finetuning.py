@@ -37,7 +37,7 @@ def main(argv):
 
     # Creating the fintuner
     print("Initializing the fintuner...")
-    finetuner = FinetuneGRN()
+    finetuner = FinetuneGN(ft_mode="full")
 
     # Finetuning the model
     print("Finetuning the model...")
